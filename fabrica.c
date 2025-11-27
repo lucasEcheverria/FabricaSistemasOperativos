@@ -22,7 +22,9 @@ int total_ensamblados = 0;
 int total_pintados = 0;
 
 sem_t mutex_productos;
+sem_t mutex_pintados;
 sem_t sem_ensamblado;
+sem_t sem_pintado;
 
 int tiempo_aleatorio(int min, int max) {
     return rand() % (max - min + 1) + min;
@@ -55,15 +57,27 @@ void* ensamblar(void* args) {
 }
 
 void* pintar(void* arg) {
-	printf("[Pintado] Comienzo de mi ejecución...\n");
-	while (1) {
+    srand(time(NULL) ^ pthread_self());
 
+    printf("[Pintado] Comienzo de mi ejecución...\n");
+    while (1)
+    {
+        sem_wait(&sem_ensamblado);
+        printf("[Pintado]: Producto recibido. Pintando...\n");
+        sleep(tiempo_aleatorio(2, 4));
 
-                printf("[Pintado]: Producto recibido. Pintando...\n");
-                sleep(tiempo_aleatorio(2, 4));
-		printf("[Pintado]: Producto pintado.\n");
+        // SECCIÓN CRÍTICA
+        sem_wait(&mutex_pintados);
+        total_pintados++;
+        int num_producto = total_pintados;
 
-        }
+        sem_post(&mutex_pintados);
+
+        printf("[Pintado]: Producto #%d pintado.\n", num_producto);
+
+        // Señalizar hilo de empaquetado
+        sem_post(&sem_pintado);
+    }
 }
 
 
