@@ -94,6 +94,29 @@ void* empaquetar(void* arg) {
         }
 }
 
+void* empaquetar(void* arg) {
+    srand(time(NULL) ^ pthread_self());
+    
+    printf("[Empaquetado] Comienzo de mi ejecución...\n");
+
+    while (1) {
+
+        // Espera a que el pintado termine un producto
+        sem_wait(&sem_pintado);
+
+        printf("[Empaquetado] Producto recibido: empaquetando...\n");
+        sleep(tiempo_aleatorio(2, 5));
+
+        printf("[Empaquetado] Producto empaquetado\n");
+
+        // Aquí después vas a agregar señal al almacén
+        // kill(pid_almacen, SIGUSR1);
+    }
+
+    return NULL;
+}
+
+
 int main(int argc, char* argv[]) {
 
 	pid_almacen = fork();
@@ -133,6 +156,11 @@ int main(int argc, char* argv[]) {
                 perror("[Fábrica] Error al inicializar sem_ensamblado");
                 exit(EXIT_FAILURE);
             }
+
+            if(sem_init(&sem_pintado, 0, 0) != 0) {
+                perror("[Fábrica] Error al inicializar sem_pintado");
+                exit(EXIT_FAILURE);
+            }
             
             printf("[Fábrica] Semáforos inicializados correctamente\n");
             
@@ -154,6 +182,14 @@ int main(int argc, char* argv[]) {
                     exit(EXIT_FAILURE);
                 }
             }
+
+            pthread_t hilo_empaquetado;
+            printf("[Fábrica] Creando hilo de empaquetado...\n");
+            if(pthread_create(&hilo_empaquetado, NULL, empaquetar, NULL) != 0) {
+                perror("[Fábrica] Error al crear hilo de empaquetado");
+                exit(EXIT_FAILURE);
+            }
+
             
             printf("[Fábrica] Todos los hilos creados. Producción en marcha...\n");
             
@@ -164,6 +200,9 @@ int main(int argc, char* argv[]) {
             for(int i = 0; i < NUM_HILOS_PINTAR; i++) {
                 pthread_join(hilos_pintar[i], NULL);
             }
+
+            pthread_join(hilo_empaquetado, NULL);
+
             
             // Limpieza
             sem_destroy(&mutex_productos);
