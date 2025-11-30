@@ -9,10 +9,18 @@
 #include <stdbool.h>
 #include <mqueue.h>
 #include <string.h>
+#include <fcntl.h>      
+#include <sys/stat.h> 
+#define MAX_PRODUCTOS 20
+#define MAX_PEDIDOS   10
+
+
+
 
 pid_t pid_almacen, pid_fabrica, pid_ventas;
 
 int unidades_producto = 0;
+
 
 // Configuración escalable
 #define NUM_HILOS_ENSAMBLAR 1
@@ -29,6 +37,21 @@ sem_t sem_pintado;
 int tiempo_aleatorio(int min, int max) {
     return rand() % (max - min + 1) + min;
 }
+#define COLA "/cola_ventas"
+
+
+
+int pedido;
+
+int pedidos_atendidos = 0;
+
+int stock = 0;
+volatile sig_atomic_t nuevo;
+
+mqd_t cola;
+
+
+
 
 void* ensamblar(void* args) {
     srand(time(NULL) ^ pthread_self());
@@ -81,18 +104,7 @@ void* pintar(void* arg) {
 }
 
 
-void* empaquetar(void* arg) {
-	printf("[Empaquetado] Comienzo de mi ejecución...\n");
-	while (1) {
 
-
-                printf("[Empaquetado] Producto recibido: empaquetando...\n");
-                sleep(tiempo_aleatorio(2, 5));
-		printf("[Empaquetado] Producto empaquetado\n");
-
-
-        }
-}
 
 void* empaquetar(void* arg) {
     srand(time(NULL) ^ pthread_self());
@@ -110,10 +122,13 @@ void* empaquetar(void* arg) {
         printf("[Empaquetado] Producto empaquetado\n");
 
         // Aquí después vas a agregar señal al almacén
-        // kill(pid_almacen, SIGUSR1);
+        kill(pid_almacen, SIGUSR1);
     }
 
     return NULL;
+}
+void recibe_producto(int sig) {
+    nuevo = 1;
 }
 
 
@@ -161,6 +176,11 @@ int main(int argc, char* argv[]) {
                 perror("[Fábrica] Error al inicializar sem_pintado");
                 exit(EXIT_FAILURE);
             }
+            if (sem_init(&mutex_pintados, 0, 1) != 0) {
+             perror("[Fábrica] Error al inicializar mutex_pintados");
+            exit(EXIT_FAILURE);
+            }
+
             
             printf("[Fábrica] Semáforos inicializados correctamente\n");
             
@@ -207,24 +227,74 @@ int main(int argc, char* argv[]) {
             // Limpieza
             sem_destroy(&mutex_productos);
             sem_destroy(&sem_ensamblado);
+            sem_destroy(&mutex_pintados);
+            sem_destroy(&sem_pintado);
+
             
             printf("[Fábrica] Finalizando ejecución\n");
 		}
-	} else {
-		printf("[Almacén] Comienzo mi ejecución...\n");
+} else {
+
+    printf("[ALMACÉN] Comienzo mi ejecución...\n");
+
+   
+    struct mq_attr attr;
+    attr.mq_flags   = 0;
+    attr.mq_maxmsg  = 10;
+    attr.mq_msgsize = sizeof(int);
+    attr.mq_curmsgs = 0;
+
+    
+    cola = mq_open(COLA, O_CREAT | O_RDONLY, 0644, &attr);
+    if (cola == (mqd_t)-1) {
+        perror("[ALMACÉN] Error al abrir la cola");
+        exit(1);
+    }
+
+    // Señales
+    signal(SIGUSR1, recibe_producto);
 
 
-	 	while(1) {
-			char buff[50];
+    printf("[ALMACÉN] Esperando productos y pedidos...\n");
+
+    
+    while (stock < MAX_PRODUCTOS && pedidos_atendidos < MAX_PEDIDOS) {
+
+        // Llega producto desde fábrica
+        if (nuevo) {
+            stock++;
+            nuevo = 0;
+            printf("[ALMACÉN] Producto recibido. Stock = %d\n", stock);
+        }
+
+        // Llega pedido desde ventas
+        int pedido;
+        if (mq_receive(cola, (char*)&pedido, sizeof(int), NULL) > 0) {
+
+            printf("[ALMACÉN] Pedido recibido: %d\n", pedido);
+
+            if (stock >= pedido) {
+                stock -= pedido;
+                pedidos_atendidos++;
+                printf("[ALMACÉN] Pedido atendido. Stock = %d | Pedidos = %d\n",
+                        stock, pedidos_atendidos);
+            } else {
+                printf("[ALMACÉN] No hay stock suficiente\n");
+            }
+        }
+
+        sleep(1);
+    }
+
+    
+    printf("[ALMACÉN] Fin automático. Cerrando recursos...\n");
+    mq_close(cola);
+    mq_unlink(COLA);
+    exit(0);
+}
 
 
-			printf("[Almacén] Recibida orden desde ventas\n");
 
-
-
-			printf("[Almacén] Atendida orden nº %s. Unidades restantes: %d\n", buff , unidades_producto);
-		}
-	}
 
 	exit(0);
 }
