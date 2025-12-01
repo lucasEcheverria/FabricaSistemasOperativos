@@ -163,7 +163,7 @@ int main(int argc, char* argv[]) {
 
                     printf("[Ventas] Recibida compra. Orden %d: %d unidades.\n", num_orden, unidades);
 
-                    mq_send(cola_ventas, &unidades, sizeof(int), 0); //Se envía el número de unidades al almacén por la cola de mensajes
+                    mq_send(cola_ventas, (char*) &unidades, sizeof(int), 0); //Se envía el número de unidades al almacén por la cola de mensajes
 
                     printf("[Ventas] Orden número %d enviada al almacén\n", num_orden);
 
