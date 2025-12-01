@@ -144,19 +144,38 @@ int main(int argc, char* argv[]) {
 				/* Proceso padre */
 
 
+            //-------separador----
 
 			} else {
-				/* Proceso Ventas */
-				int num_orden = 0;
-				while(1) {
+                //PROCESO VENTAS
+                printf("[Ventas] Comienzo mi ejecución...\n");
 
-					sleep(tiempo_aleatorio(10, 15));
-					printf("[Ventas] Recibida compra desde cliente. Enviando orden nº %d al almacén...\n", num_orden);
-					num_orden++;
+                mqd_t cola_ventas;
+                int num_orden = 0;
+
+                cola_ventas = mq_open(COLA, O_WRONLY); //Se abre la cola creada por el almacén en modo escritura
+
+                while (1) {
+
+                    int unidades;
+                    sleep(tiempo_aleatorio(10, 15)); //Cada x tiempo llega una compra de un cliente
+                    unidades = tiempo_aleatorio(1, 3); //Número de unidades que pide el cliente (por ejemplo, de 1 a 3)
+
+                    printf("[Ventas] Recibida compra. Orden %d: %d unidades.\n", num_orden, unidades);
+
+                    mq_send(cola_ventas, &unidades, sizeof(int), 0); //Se envía el número de unidades al almacén por la cola de mensajes
+
+                    printf("[Ventas] Orden número %d enviada al almacén\n", num_orden);
+
+                    num_orden = num_orden + 1;
+
+                }
+
+                //------separador----
+			
+            }
 
 
-				}
-			}
 		} else {
 			//PROCESO FÁBRICA 
             printf("[Fábrica] Comienzo mi ejecución...\n");
