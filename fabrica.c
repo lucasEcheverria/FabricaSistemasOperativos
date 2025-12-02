@@ -101,6 +101,8 @@ void* pintar(void* arg) {
         // Señalizar hilo de empaquetado
         sem_post(&sem_pintado);
     }
+
+	return NULL;
 }
 
 
