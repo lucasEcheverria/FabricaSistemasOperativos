@@ -11,9 +11,6 @@
 #include <string.h>
 #include <fcntl.h>      
 #include <sys/stat.h> 
-#define MAX_PRODUCTOS 20
-#define MAX_PEDIDOS   10
-
 
 
 
@@ -39,11 +36,32 @@ int tiempo_aleatorio(int min, int max) {
 }
 #define COLA "/cola_ventas"
 
+volatile sig_atomic_t salir = 0;
+
+void terminar(int sig) {
+    salir = 1;
+}
+void terminar_fabrica(int sig) {
+    salir = 1;
+    // Despertar hilos bloqueados en sem_wait
+    sem_post(&sem_ensamblado);
+    sem_post(&sem_pintado);
+}
 
 
 int pedido;
+void terminar_padre(int sig) {
+    printf("\n[Padre] Terminando todos los procesos...\n");
+    kill(pid_fabrica, SIGINT);
+    kill(pid_almacen, SIGINT);
+    kill(pid_ventas, SIGINT);
+    wait(NULL);
+    wait(NULL);
+    wait(NULL);
+    printf("[Padre] Todos los procesos terminados. Saliendo.\n");
+    exit(0);
+}
 
-int pedidos_atendidos = 0;
 
 int stock = 0;
 volatile sig_atomic_t nuevo;
@@ -58,7 +76,7 @@ void* ensamblar(void* args) {
     
     printf("[Ensamblaje] Comienzo de mi ejecución...\n");
     
-    while(1) {
+    while(!salir) {
         printf("[Ensamblaje] Ensamblando producto...\n");
         sleep(tiempo_aleatorio(3, 8));
         
@@ -83,7 +101,7 @@ void* pintar(void* arg) {
     srand(time(NULL) ^ pthread_self());
 
     printf("[Pintado] Comienzo de mi ejecución...\n");
-    while (1)
+    while (!salir)
     {
         sem_wait(&sem_ensamblado);
         printf("[Pintado]: Producto recibido. Pintando...\n");
@@ -113,7 +131,7 @@ void* empaquetar(void* arg) {
     
     printf("[Empaquetado] Comienzo de mi ejecución...\n");
 
-    while (1) {
+    while (!salir) {
 
         // Espera a que el pintado termine un producto
         sem_wait(&sem_pintado);
@@ -144,12 +162,14 @@ int main(int argc, char* argv[]) {
 			pid_ventas = fork();
 			if(pid_ventas != 0) {
 				/* Proceso padre */
-
+                signal(SIGINT, terminar_padre);
+                while (1) pause();
 
             //-------separador----
 
 			} else {
                 //PROCESO VENTAS
+                signal(SIGINT, terminar);
                 printf("[Ventas] Comienzo mi ejecución...\n");
 
                 mqd_t cola_ventas;
@@ -157,7 +177,7 @@ int main(int argc, char* argv[]) {
 
                 cola_ventas = mq_open(COLA, O_WRONLY); //Se abre la cola creada por el almacén en modo escritura
 
-                while (1) {
+                while (!salir) {
 
                     int unidades;
                     sleep(tiempo_aleatorio(10, 15)); //Cada x tiempo llega una compra de un cliente
@@ -171,8 +191,11 @@ int main(int argc, char* argv[]) {
 
                     num_orden = num_orden + 1;
 
-                }
+                }   
 
+                mq_close(cola_ventas);
+                printf("[Ventas] Finalizando...\n");
+                exit(0);
                 //------separador----
 			
             }
@@ -180,6 +203,8 @@ int main(int argc, char* argv[]) {
 
 		} else {
 			//PROCESO FÁBRICA 
+            signal(SIGINT, terminar_fabrica);
+
             printf("[Fábrica] Comienzo mi ejecución...\n");
 
             // Inicializar semáforos
@@ -279,45 +304,43 @@ int main(int argc, char* argv[]) {
     printf("[ALMACÉN] Esperando productos y pedidos...\n");
 
     
-    while (stock < MAX_PRODUCTOS && pedidos_atendidos < MAX_PEDIDOS) {
+    signal(SIGINT, terminar);
 
-        // Llega producto desde fábrica
-        if (nuevo) {
-            stock++;
-            nuevo = 0;
-            printf("[ALMACÉN] Producto recibido. Stock = %d\n", stock);
-        }
+while (!salir) {
 
-        // Llega pedido desde ventas
-        int pedido;
-        if (mq_receive(cola, (char*)&pedido, sizeof(int), NULL) > 0) {
-
-            printf("[ALMACÉN] Pedido recibido: %d\n", pedido);
-
-            if (stock >= pedido) {
-                stock -= pedido;
-                pedidos_atendidos++;
-                printf("[ALMACÉN] Pedido atendido. Stock = %d | Pedidos = %d\n",
-                        stock, pedidos_atendidos);
-            } else {
-                printf("[ALMACÉN] No hay stock suficiente\n");
-            }
-        }
-
-        sleep(1);
+    if (nuevo) {
+        stock++;
+        nuevo = 0;
+        printf("[ALMACÉN] Producto recibido. Stock = %d\n", stock);
     }
 
-    
-    printf("[ALMACÉN] Fin automático. Cerrando recursos...\n");
-    mq_close(cola);
-    mq_unlink(COLA);
-    exit(0);
+    int pedido;
+    if (mq_receive(cola, (char*)&pedido, sizeof(int), NULL) > 0) {
+
+        printf("[ALMACÉN] Pedido recibido: %d\n", pedido);
+
+        if (stock >= pedido) {
+            stock -= pedido;
+            printf("[ALMACÉN] Pedido atendido. Stock = %d\n", stock);
+        } else {
+            printf("[ALMACÉN] No hay stock suficiente\n");
+        }
+    }
+
+    sleep(1);
+}
+
+printf("\n[ALMACÉN] Cerrando recursos...\n");
+mq_close(cola);
+mq_unlink(COLA);
+exit(0);
+
 }
 
 
 
 
-	exit(0);
+	return 0;
 }
 
 //prueba primer commit
